@@ -6,7 +6,9 @@ use DBI;
 use PDL;
 use PDL::IO::DBI ':all';
 use Test::Number::Delta relative => 0.00001;
+use Config;
 
+my $use64bitint = (($Config{use64bitint} // '') eq 'define' || $Config{longsize} >= 8) ? 1 : 0;
 plan skip_all => "DBD::ODBC not installed" unless eval { require DBD::ODBC };
 plan skip_all => "PDL_IO_DBI_ODBC_MSSQL_TEST_DSN not set" unless $ENV{PDL_IO_DBI_ODBC_MSSQL_TEST_DSN};
 
@@ -78,29 +80,30 @@ my $tab3 = [
 }
 
 ### TAB1
-my $t1  = rdbi2D($dsn, "select * from tab1");
-my $t1h = rdbi2D(DBI->connect($dsn), "select * from tab1");
-my @p1  = rdbi1D($dsn, "select * from tab1");
-
-is($p1[0]->info,  "PDL: Long D [5]",     '$p1[0]->info');
-is($p1[1]->info,  "PDL: Byte D [5]",     '$p1[1]->info');
-is($p1[2]->info,  "PDL: Short D [5]",    '$p1[2]->info');
-is($p1[3]->info,  "PDL: Long D [5]",     '$p1[3]->info');
-is($p1[4]->info,  "PDL: LongLong D [5]", '$p1[4]->info');
-is($p1[5]->info,  "PDL: Float D [5]",    '$p1[5]->info');
-is($p1[6]->info,  "PDL: Double D [5]",   '$p1[6]->info');
-is($t1->info,     "PDL: Double D [5,7]", '$t1->info');
-is($t1h->info,    "PDL: Double D [5,7]", '$t1h->info');
-
-delta_ok($t1->transpose->unpdl,  $tab1, '$t1->unpdl');
-delta_ok($t1h->transpose->unpdl, $tab1, '$t1h->unpdl');
+if ($use64bitint) {
+  my $t1  = rdbi2D($dsn, "select * from tab1");
+  my $t1h = rdbi2D(DBI->connect($dsn), "select * from tab1");
+  my @p1  = rdbi1D($dsn, "select * from tab1");
+  
+  is($p1[0]->info,  "PDL: Long D [5]",     '$p1[0]->info');
+  is($p1[1]->info,  "PDL: Byte D [5]",     '$p1[1]->info');
+  is($p1[2]->info,  "PDL: Short D [5]",    '$p1[2]->info');
+  is($p1[3]->info,  "PDL: Long D [5]",     '$p1[3]->info');
+  is($p1[4]->info,  "PDL: LongLong D [5]", '$p1[4]->info');
+  is($p1[5]->info,  "PDL: Float D [5]",    '$p1[5]->info');
+  is($p1[6]->info,  "PDL: Double D [5]",   '$p1[6]->info');
+  is($t1->info,     "PDL: Double D [5,7]", '$t1->info');
+  is($t1h->info,    "PDL: Double D [5,7]", '$t1h->info');
+  
+  delta_ok($t1->transpose->unpdl,  $tab1, '$t1->unpdl');
+  delta_ok($t1h->transpose->unpdl, $tab1, '$t1h->unpdl');
+}
 
 ### TAB2
 my $t2  = rdbi2D($dsn, "select * from tab2");
 my @p2  = rdbi1D($dsn, "select * from tab2");
 my @p2d = rdbi1D($dsn, "select * from tab2", {type=>double, null2bad=>1});
 my @p2f = rdbi1D($dsn, "select * from tab2", {type=>float, null2bad=>1});
-my @p2x = rdbi1D($dsn, "select * from tab2", {type=>[short, long, longlong, float], null2bad=>1});
 
 is($t2->info,     "PDL: Double D [24,5]", '$t2->info');
 
@@ -119,10 +122,13 @@ is($p2f[1]->info, "PDL: Float D [24]",    '$p2f[1]->info');
 is($p2f[2]->info, "PDL: Float D [24]",    '$p2f[2]->info');
 is($p2f[3]->info, "PDL: Float D [24]",    '$p2f[3]->info');
 
-is($p2x[0]->info, "PDL: Short D [24]",    '$p2x[0]->info');
-is($p2x[1]->info, "PDL: Long D [24]",     '$p2x[1]->info');
-is($p2x[2]->info, "PDL: LongLong D [24]", '$p2x[2]->info');
-is($p2x[3]->info, "PDL: Float D [24]",    '$p2x[3]->info');
+if ($use64bitint) {
+  my @p2x = rdbi1D($dsn, "select * from tab2", {type=>[short, long, longlong, float], null2bad=>1});
+  is($p2x[0]->info, "PDL: Short D [24]",    '$p2x[0]->info');
+  is($p2x[1]->info, "PDL: Long D [24]",     '$p2x[1]->info');
+  is($p2x[2]->info, "PDL: LongLong D [24]", '$p2x[2]->info');
+  is($p2x[3]->info, "PDL: Float D [24]",    '$p2x[3]->info');
+}
 
 delta_ok($t2->transpose->unpdl,  $tab2, '$t2->unpdl');
 delta_ok($t2->slice(':', "(0)")->sum, 40123167);

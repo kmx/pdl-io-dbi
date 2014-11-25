@@ -7,12 +7,17 @@ use Exporter 'import';
 our @EXPORT_OK   = qw(rdbi1D rdbi2D);
 our %EXPORT_TAGS = (all => \@EXPORT_OK);
 
-our $VERSION = '0.004';
+our $VERSION = '0.005';
 
-use constant DEBUG => $ENV{PDL_IO_DBI_DEBUG} ? 1 : 0;
+use Config;
+use constant NO64BITINT => (($Config{use64bitint} // '') eq 'define' || $Config{longsize} >= 8) ? 0 : 1;
+use constant DEBUG      => $ENV{PDL_IO_DBI_DEBUG} ? 1 : 0;
 
 use PDL;
 use DBI;
+
+use Carp;
+$Carp::Internal{ (__PACKAGE__) }++;
 
 my %pck = (
   byte     => "C",
@@ -89,8 +94,8 @@ my %tmap = (
 sub rdbi1D {
   my ($dbh, $sql, $bind_values, $O) = _proc_args(@_);
 
-  my $sth = $dbh->prepare($sql) or die "FATAL: prepare failed: " . $dbh->errstr;
-  $sth->execute(@$bind_values)  or die "FATAL: execute failed: " . $sth->errstr;
+  my $sth = $dbh->prepare($sql) or croak "FATAL: prepare failed: " . $dbh->errstr;
+  $sth->execute(@$bind_values)  or croak "FATAL: execute failed: " . $sth->errstr;
 
   my ($c_type, $c_pack, $c_sizeof, $c_pdl, $c_bad, $c_dataref, $c_idx, $allocated, $cols) = _init_1D($sth->{TYPE}, $O);
   warn "Initial size: '$allocated'\n" if $O->{debug};
@@ -130,13 +135,13 @@ sub rdbi1D {
         }
         my $len = length $bytes;
         my $expected_len = $c_sizeof->[$ci] * $rows;
-        die "FATAL: len mismatch $len != $expected_len" if $len != $expected_len;
+        croak "FATAL: len mismatch $len != $expected_len" if $len != $expected_len;
         substr(${$c_dataref->[$ci]}, $c_idx->[$ci], $len) = $bytes;
         $c_idx->[$ci] += $expected_len;
       }
     }
   }
-  die "FATAL: DB fetch failed: " . $sth->errstr if $sth->err;
+  croak "FATAL: DB fetch failed: " . $sth->errstr if $sth->err;
 
   if ($processed != $allocated) {
     warn "Reshape to: '$processed' (final)\n" if $O->{debug};
@@ -152,8 +157,8 @@ sub rdbi1D {
 sub rdbi2D {
   my ($dbh, $sql, $bind_values, $O) = _proc_args(@_);
 
-  my $sth = $dbh->prepare($sql) or die "FATAL: prepare failed: " . $dbh->errstr;
-  $sth->execute(@$bind_values) or die "FATAL: execute failed: " . $sth->errstr;
+  my $sth = $dbh->prepare($sql) or croak "FATAL: prepare failed: " . $dbh->errstr;
+  $sth->execute(@$bind_values) or croak "FATAL: execute failed: " . $sth->errstr;
 
   my ($c_type, $c_pack, $c_sizeof, $c_pdl, $c_bad, $c_dataref, $allocated, $cols) = _init_2D($sth->{TYPE}, $O);
   warn "Initial size: '$allocated'\n" if $O->{debug};
@@ -192,12 +197,12 @@ sub rdbi2D {
       }
       my $len = length $bytes;
       my $expected_len = $c_sizeof * $cols * $rows;
-      die "FATAL: len mismatch $len != $expected_len" if $len != $expected_len;
+      croak "FATAL: len mismatch $len != $expected_len" if $len != $expected_len;
       substr($$c_dataref, $c_idx, $len) = $bytes;
       $c_idx += $len;
     }
   }
-  die "FATAL: DB fetch failed: " . $sth->errstr if $sth->err;
+  croak "FATAL: DB fetch failed: " . $sth->errstr if $sth->err;
   if ($processed != $allocated) {
     warn "Reshape to: '$processed' (final)\n" if $O->{debug};
     $c_pdl->reshape($cols, $processed); # allocate the exact size
@@ -213,8 +218,8 @@ sub _proc_args {
   my $options = ref $_[-1] eq 'HASH' ? pop : {};
   my ($dsn_or_dbh, $sql, $bind_values) = @_;
 
-  die "FATAL: no SQL query"  unless $sql;
-  die "FATAL: no DBH or DSN" unless defined $dsn_or_dbh;
+  croak "FATAL: no SQL query"  unless $sql;
+  croak "FATAL: no DBH or DSN" unless defined $dsn_or_dbh;
   my $O = { %$options }; # make a copy
 
   # handle defaults for optional parameters
@@ -229,7 +234,7 @@ sub _proc_args {
   $bind_values = [] unless ref $bind_values eq 'ARRAY';
 
   # launch db query
-  my $dbh = ref $dsn_or_dbh ? $dsn_or_dbh : DBI->connect($dsn_or_dbh) or die "FATAL: connect failed: " . $DBI::errstr;
+  my $dbh = ref $dsn_or_dbh ? $dsn_or_dbh : DBI->connect($dsn_or_dbh) or croak "FATAL: connect failed: " . $DBI::errstr;
 
   return ($dbh, $sql, $bind_values, $O);
 }
@@ -237,9 +242,9 @@ sub _proc_args {
 sub _init_1D {
   my ($sql_types, $O) = @_;
 
-  die "FATAL: no columns" unless ref $sql_types eq 'ARRAY';
+  croak "FATAL: no columns" unless ref $sql_types eq 'ARRAY';
   my $cols = scalar @$sql_types;
-  die "FATAL: no columns" unless $cols > 0;
+  croak "FATAL: no columns" unless $cols > 0;
 
   my @c_type;
   my @c_pack;
@@ -266,14 +271,15 @@ sub _init_1D {
     $c_type[$_] = $detected_type[$_] if !defined $c_type[$_] || $c_type[$_] eq 'auto';
     $c_type[$_] = double             if !$c_type[$_];
     $c_pack[$_] = $pck{$c_type[$_]};
-    die "FATAL: invalid type '$c_type[$_]' for column $_" if !$c_pack[$_];
+    croak "FATAL: your perl does not support 64bitint (avoid using type longlong)" if $c_pack[$_] eq 'q' && NO64BITINT;
+    croak "FATAL: invalid type '$c_type[$_]' for column $_" if !$c_pack[$_];
     $c_sizeof[$_] = length pack($c_pack[$_], 1);
     $c_pdl[$_] = zeroes($c_type[$_], $allocated);
     $c_dataref[$_] = $c_pdl[$_]->get_dataref;
     $c_bad[$_] = $c_pdl[$_]->badvalue;
     $c_idx[$_] = 0;
     my $big = PDL::Core::howbig($c_pdl[$_]->get_datatype);
-    die "FATAL: column $_ mismatch (type=$c_type[$_], sizeof=$c_sizeof[$_], big=$big)" if $big != $c_sizeof[$_];
+    croak "FATAL: column $_ mismatch (type=$c_type[$_], sizeof=$c_sizeof[$_], big=$big)" if $big != $c_sizeof[$_];
   }
 
   return (\@c_type, \@c_pack, \@c_sizeof, \@c_pdl, \@c_bad, \@c_dataref, \@c_idx, $allocated, $cols);
@@ -282,9 +288,9 @@ sub _init_1D {
 sub _init_2D {
   my ($sql_types, $O) = @_;
 
-  die "FATAL: no columns" unless ref $sql_types eq 'ARRAY';
+  croak "FATAL: no columns" unless ref $sql_types eq 'ARRAY';
   my $cols = scalar @$sql_types;
-  die "FATAL: no columns" unless $cols > 0;
+  croak "FATAL: no columns" unless $cols > 0;
 
   my $c_type = $O->{type};
   if (!$c_type || $c_type eq 'auto') {
@@ -302,10 +308,11 @@ sub _init_2D {
       $c_type = short     if $dt eq short    && $c_type !~ /^(double|float|longlong|long)$/;
       $c_type = byte      if $dt eq byte     && $c_type !~ /^(double|float|longlong|long|short)$/;
     }
-    die "FATAL: type detection failed" if !$c_type;
+    croak "FATAL: type detection failed" if !$c_type;
   }
   my $c_pack = $pck{$c_type};
-  die "FATAL: invalid type '$c_type' for column $_" if !$c_pack;
+  croak "FATAL: your perl does not support 64bitint (avoid using type longlong)" if $c_pack eq 'q' && NO64BITINT;
+  croak "FATAL: invalid type '$c_type' for column $_" if !$c_pack;
 
   my $allocated = $O->{reshape_inc};
   my $c_sizeof = length pack($c_pack, 1);
@@ -314,7 +321,7 @@ sub _init_2D {
   my $c_bad = $c_pdl->badvalue;
 
   my $howbig = PDL::Core::howbig($c_pdl->get_datatype);
-  die "FATAL: column $_ size mismatch (type=$c_type, sizeof=$c_sizeof, howbig=$howbig)" unless  $howbig == $c_sizeof;
+  croak "FATAL: column $_ size mismatch (type=$c_type, sizeof=$c_sizeof, howbig=$howbig)" unless  $howbig == $c_sizeof;
 
   return ($c_type, $c_pack, $c_sizeof, $c_pdl, $c_bad, $c_dataref, $allocated, $cols);
 }
@@ -370,6 +377,14 @@ The goal of this module is to be as fast as possible. It is designed to silently
 
 =head1 FUNCTIONS
 
+By default, PDL::IO::DBI doesn't import any function. You can import individual functions like this:
+
+ use IUP 'rdbi2D';
+
+Or import all available functions:
+
+ use IUP ':all';
+
 =head2 rdbi1D
 
 Queries the database and stores the data into 1D piddles.
@@ -401,20 +416,39 @@ Example:
   print $low->info, "\n";
   PDL: Double D [100000]        # == 1D piddle, 100 000 rows from DB
 
-Items supported in C<options> hash:
+Parameters:
+
+=over
+
+=item dbh_or_dsn
+
+L<DBI> handle of database connection or data source name.
+
+=item sql_query
+
+SQL query.
+
+=item sql_query_params
+
+Optional bind values that can be used for queries with placeholders.
+
+=back
+
+Items supported in B<options> hash:
 
 =over
 
 =item type
 
 Defines the type of output piddles: C<double>, C<float>, C<longlong>, C<long>, C<short>, C<byte>.
-Default value is C<auto> which means that the type of the output piddles is autodetected.
+Default value is C<auto> which means that the type of the output piddles is auto detected.
+B<BEWARE:> type `longlong` can be used only on perls with 64bitint support.
 
 You can set one type for all columns/piddles:
 
   my ($high, $low, $avg) = rdbi1D($dbh_or_dsn, $sql_query, {type => double});
 
-or separately for each colum/piddle:
+or separately for each column/piddle:
 
   my ($high, $low, $avg) = rdbi1D($dbh_or_dsn, $sql_query, {type => [long, double, double]});
 
@@ -425,9 +459,9 @@ Default value is C<8000> (rows).
 
 =item reshape_inc
 
-As we do not try to load all query results into memory at once, we also do not know at the beginning how
+As we do not try to load all query results into memory at once; we also do not know at the beginning how
 many rows there will be. Therefore we do not know how big piddle to allocate, we have to incrementally
-(re)alocated the piddle by increments defined by this parameter. Default value is C<80000>.
+(re)allocated the piddle by increments defined by this parameter. Default value is C<80000>.
 
 If you know how many rows there will be you can improve performance by setting this parameter to expected row count.
 
@@ -465,7 +499,7 @@ Example:
   print $pdl->info, "\n";
   PDL: Double D [100000, 3]     # == 2D piddle, 100 000 rows from DB
 
-Items supported in C<options> hash are the same as by L</rdbi1D>.
+Parameters and items supported in C<options> hash are the same as by L</rdbi1D>.
 
 =head1 TODO
 
