@@ -329,9 +329,14 @@ PDL::IO::DBI - Create PDL from database (optimized for speed and large data)
 
 =head1 SYNOPSIS
 
+  use PDL;
+  use PDL::IO::DBI ':all';
+
   # simple usage - using DSN + SQL query
   my $sql = "select ymd, open, high, low, close from quote where symbol = 'AAPL' AND ymd >= 20140404 order by ymd";
   my $pdl = rdbi2D("dbi:SQLite:dbname=Quotes.db", $sql);
+
+  use DBI;
 
   # using DBI handle + SQL query with binded values
   my $dbh = DBI->connect("dbi:Pg:dbname=QDB;host=localhost", 'username', 'password');
@@ -360,7 +365,7 @@ However this approach does not scale well for large data (e.g. SQL queries resul
 This module is optimized for creating piddles populated with very large database data. It currently B<supports only
 reading data from database> not updating/inserting to DB.
 
-The goal of this module is to be as fast as possible. It is designed to silently converts anything into a number 
+The goal of this module is to be as fast as possible. It is designed to silently converts anything into a number
 (wrong or undefined values are converted into C<0>).
 
 =head1 FUNCTIONS
