@@ -379,11 +379,11 @@ The goal of this module is to be as fast as possible. It is designed to silently
 
 By default, PDL::IO::DBI doesn't import any function. You can import individual functions like this:
 
- use IUP 'rdbi2D';
+ use PDL::IO::DBI 'rdbi2D';
 
 Or import all available functions:
 
- use IUP ':all';
+ use PDL::IO::DBI ':all';
 
 =head2 rdbi1D
 

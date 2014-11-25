@@ -1,9 +1,9 @@
 Changes for PDL::IO::DBI
 
-0.005   2014/11/XX
+0.005   2014/11/26
         - doc improvements
         - replace die() with croak()
-        - better warrnings for perls without 64bitint
+        - better warnings for perls without 64bitint
 
 0.004   2014/11/25
         - documentation changes
