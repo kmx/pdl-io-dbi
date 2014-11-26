@@ -8,8 +8,10 @@ use PDL::IO::DBI ':all';
 use Test::Number::Delta relative => 0.00001;
 use Config;
 
-my $use64bitint = (($Config{use64bitint} // '') eq 'define' || $Config{longsize} >= 8) ? 1 : 0;
 plan skip_all => "DBD::SQLite not installed" unless eval { require DBD::SQLite } ;
+
+use constant NO64BITINT => (($Config{use64bitint} || '') eq 'define' || $Config{longsize} >= 8) ? 0 : 1;
+diag "No support for 64bitint - some tests will be skipped" if NO64BITINT;
 
 my $db = "temp.db";
 unlink($db) or die "unlink($db): $!" if -f $db;
@@ -78,7 +80,7 @@ my $tab3 = [
 }
 
 ### TAB1
-if ($use64bitint) {
+if (!NO64BITINT) {
   my $t1  = rdbi2D($dsn, "select * from tab1");
   my $t1h = rdbi2D(DBI->connect($dsn), "select * from tab1");
   my @p1  = rdbi1D($dsn, "select * from tab1");
@@ -120,7 +122,7 @@ is($p2f[1]->info, "PDL: Float D [24]",    '$p2f[1]->info');
 is($p2f[2]->info, "PDL: Float D [24]",    '$p2f[2]->info');
 is($p2f[3]->info, "PDL: Float D [24]",    '$p2f[3]->info');
 
-if ($use64bitint) {
+if (!NO64BITINT) {
   my @p2x = rdbi1D($dsn, "select * from tab2", {type=>[short, long, longlong, float], null2bad=>1});
   is($p2x[0]->info, "PDL: Short D [24]",    '$p2x[0]->info');
   is($p2x[1]->info, "PDL: Long D [24]",     '$p2x[1]->info');

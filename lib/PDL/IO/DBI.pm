@@ -7,10 +7,10 @@ use Exporter 'import';
 our @EXPORT_OK   = qw(rdbi1D rdbi2D);
 our %EXPORT_TAGS = (all => \@EXPORT_OK);
 
-our $VERSION = '0.005';
+our $VERSION = '0.006';
 
 use Config;
-use constant NO64BITINT => (($Config{use64bitint} // '') eq 'define' || $Config{longsize} >= 8) ? 0 : 1;
+use constant NO64BITINT => (($Config{use64bitint} || '') eq 'define' || $Config{longsize} >= 8) ? 0 : 1;
 use constant DEBUG      => $ENV{PDL_IO_DBI_DEBUG} ? 1 : 0;
 
 use PDL;

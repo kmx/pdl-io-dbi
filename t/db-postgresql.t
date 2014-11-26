@@ -8,9 +8,11 @@ use PDL::IO::DBI ':all';
 use Test::Number::Delta relative => 0.00001;
 use Config;
 
-my $use64bitint = (($Config{use64bitint} // '') eq 'define' || $Config{longsize} >= 8) ? 1 : 0;
 plan skip_all => "DBD::Pg not installed" unless eval { require DBD::Pg };
 plan skip_all => "PDL_IO_DBI_PG_TEST_DSN not set" unless $ENV{PDL_IO_DBI_PG_TEST_DSN};
+
+use constant NO64BITINT => (($Config{use64bitint} || '') eq 'define' || $Config{longsize} >= 8) ? 0 : 1;
+diag "No support for 64bitint - some tests will be skipped" if NO64BITINT;
 
 my $dsn = $ENV{PDL_IO_DBI_PG_TEST_DSN}; # e.g. PDL_IO_DBI_PG_TEST_DSN=dbi:Pg:dbname=db1;host=localhost;user=postgres
 
@@ -81,7 +83,7 @@ my $tab3 = [
 }
 
 ### TAB1
-if ($use64bitint) {
+if (!NO64BITINT) {
   my $t1  = rdbi2D($dsn, "select * from tab1");
   my $t1h = rdbi2D(DBI->connect($dsn), "select * from tab1");
   my @p1  = rdbi1D($dsn, "select * from tab1");
@@ -123,7 +125,7 @@ is($p2f[1]->info, "PDL: Float D [24]",    '$p2f[1]->info');
 is($p2f[2]->info, "PDL: Float D [24]",    '$p2f[2]->info');
 is($p2f[3]->info, "PDL: Float D [24]",    '$p2f[3]->info');
 
-if ($use64bitint) {
+if (!NO64BITINT) {
   my @p2x = rdbi1D($dsn, "select * from tab2", {type=>[short, long, longlong, float], null2bad=>1});
   is($p2x[0]->info, "PDL: Short D [24]",    '$p2x[0]->info');
   is($p2x[1]->info, "PDL: Long D [24]",     '$p2x[1]->info');
