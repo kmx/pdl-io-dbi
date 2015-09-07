@@ -1,5 +1,9 @@
 Changes for PDL::IO::DBI
 
+0.007   2015/00/XX
+        - support for DATETIME, TIMESTAMP, DATE
+        - require PDL 2.006 as we need unpdl()
+
 0.006   2014/11/26
         - perl 5.8.9 compatibility
 

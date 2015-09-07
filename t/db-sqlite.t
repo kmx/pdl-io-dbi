@@ -10,7 +10,7 @@ use Config;
 
 plan skip_all => "DBD::SQLite not installed" unless eval { require DBD::SQLite } ;
 
-use constant NO64BITINT => (($Config{use64bitint} || '') eq 'define' || $Config{longsize} >= 8) ? 0 : 1;
+use constant NO64BITINT => $Config{ivsize} < 8 ? 1 : 0;
 diag "No support for 64bitint - some tests will be skipped" if NO64BITINT;
 
 my $db = "temp.db";
@@ -76,6 +76,8 @@ my $tab3 = [
   $dbh->do('INSERT INTO tab2 VALUES (?, ?, ?, ?, ?)', undef, @$_) for (@$tab2);
   $dbh->do('CREATE TABLE tab3 ( c1 INT,  c2 INT, c3 INT )');
   $dbh->do('INSERT INTO tab3 VALUES (?, ?, ?)', undef, @$_) for (@$tab3);
+  $dbh->do('CREATE TABLE tab4 ( dt DATE,  ts1 TIMESTAMP, ts2 TIMESTAMP, ts3 TIMESTAMP )');
+  $dbh->do('INSERT INTO tab4 VALUES (?, ?, ?, ?)', undef, "1969-12-31", "2015-12-31T23:23:23.999999", "2001-11-11T12:23", "2001-11-11");
   $dbh->disconnect;
 }
 
@@ -153,6 +155,24 @@ is($t3->at(4,2), 0, '$t3->at(4,2)');
 is($t3b->at(2,0), 'BAD', '$t3b->at(2,0)');
 is($t3b->at(3,1), 'BAD', '$t3b->at(3,1)');
 is($t3b->at(4,2), 'BAD', '$t3b->at(4,2)');
+
+### TAB4
+if (!NO64BITINT) {
+  my $t4a = rdbi2D($dsn, "select * from tab4", {type => longlong});
+  is_deeply([$t4a->list], [-86400000000, 1451604203999999,1005481380000000,1005436800000000]);
+  my ($t4i, $t4j, $t4k, $t4l) = rdbi1D($dsn, "select * from tab4", {type => longlong});
+  is($t4i->at(0,0), -86400000000);
+  is($t4j->at(0,0), 1451604203999999);
+  is($t4k->at(0,0), 1005481380000000);
+  is($t4l->at(0,0), 1005436800000000);
+}
+my $t4b = rdbi2D($dsn, "select * from tab4");
+is_deeply([$t4b->list], [-86400.0, 1451604203.999, 1005481380.0, 1005436800.0]);
+my ($t4m, $t4n, $t4o, $t4p) = rdbi1D($dsn, "select * from tab4");
+is($t4m->at(0,0), -86400.0);
+is($t4n->at(0,0), 1451604203.999);
+is($t4o->at(0,0), 1005481380.0);
+is($t4p->at(0,0), 1005436800.0);
 
 unlink($db);
 

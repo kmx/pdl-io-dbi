@@ -7,7 +7,7 @@ use Exporter 'import';
 our @EXPORT_OK   = qw(rdbi1D rdbi2D);
 our %EXPORT_TAGS = (all => \@EXPORT_OK);
 
-our $VERSION = '0.006';
+our $VERSION = '0.007';
 
 use Config;
 use constant NO64BITINT => (($Config{use64bitint} || '') eq 'define' || $Config{longsize} >= 8) ? 0 : 1;
@@ -15,6 +15,7 @@ use constant DEBUG      => $ENV{PDL_IO_DBI_DEBUG} ? 1 : 0;
 
 use PDL;
 use DBI;
+use Time::Moment;
 
 use Carp;
 $Carp::Internal{ (__PACKAGE__) }++;
@@ -39,17 +40,15 @@ my %tmap = (
   DBI::SQL_FLOAT     => double,      #  6
   DBI::SQL_REAL      => float,       #  7
   DBI::SQL_DOUBLE    => double,      #  8
- #DBI::SQL_DATETIME  => longlong,    #  9
- #DBI::SQL_DATE      => longlong,    #  9
- #DBI::SQL_INTERVAL  => longlong,    # 10
- #DBI::SQL_TIME      => longlong,    # 10
- #DBI::SQL_TIMESTAMP => longlong,    # 11
+  DBI::SQL_DATETIME  => '_dt_',      #  9 == DBI::SQL_DATE
+ #DBI::SQL_INTERVAL  => longlong,    # 10 == DBI::SQL_TIME
+  DBI::SQL_TIMESTAMP => '_dt_',      # 11
   DBI::SQL_BOOLEAN   => byte,        # 16
- #DBI::SQL_TYPE_DATE                      91
- #DBI::SQL_TYPE_TIME                      92
- #DBI::SQL_TYPE_TIMESTAMP                 93
- #DBI::SQL_TYPE_TIME_WITH_TIMEZONE        94
- #DBI::SQL_TYPE_TIMESTAMP_WITH_TIMEZONE   95
+  DBI::SQL_TYPE_DATE => '_dt_',      # 91
+ #DBI::SQL_TYPE_TIME                 # 92
+  DBI::SQL_TYPE_TIMESTAMP => '_dt_', # 93
+ #DBI::SQL_TYPE_TIME_WITH_TIMEZONE   # 94
+  DBI::SQL_TYPE_TIMESTAMP_WITH_TIMEZONE => '_dt_', # 95
  #DBI::SQL_INTERVAL_YEAR                 101
  #DBI::SQL_INTERVAL_MONTH                102
  #DBI::SQL_INTERVAL_DAY                  103
@@ -83,6 +82,9 @@ my %tmap = (
   'SMALLSERIAL'      => short,    # 2 bytes, 1 to 32767
   'SERIAL'           => long,     # 4 bytes, 1 to 2147483647
   'BIGSERIAL'        => longlong, # 8 bytes, 1 to 9223372036854775807
+  'DATETIME'         => '_dt_',
+  'DATE'             => '_dt_',
+  'TIMESTAMP'        => '_dt_',
 );
 
 # https://www.sqlite.org/datatype3.html
@@ -90,6 +92,21 @@ my %tmap = (
 # http://www.postgresql.org/docs/9.3/static/datatype-numeric.html
 # http://msdn.microsoft.com/en-us/library/ff848794.aspx
 
+sub _dt_to_double {
+  my $str = shift;
+  $str = $str."T00Z" if $str =~ /^\d\d\d\d-\d\d-\d\d$/;
+  $str = $str."Z"    if $str !~ /(UTC|GMT|Z|\+)/;
+  my $t = eval { Time::Moment->from_string($str, lenient=>1) } or die "INVALID DATETIME: $str";
+  return $t->epoch * 1.0 + $t->millisecond / 1_000;
+}
+
+sub _dt_to_longlong {
+  my $str = shift;
+  $str = $str."T00Z" if $str =~ /^\d\d\d\d-\d\d-\d\d$/;
+  $str = $str."Z"    if $str !~ /(UTC|GMT|Z|\+)/;
+  my $t = eval { Time::Moment->from_string($str, lenient=>1) } or die "INVALID DATETIME: $str";
+  return $t->epoch*1000000 + $t->microsecond;
+}
 
 sub rdbi1D {
   my ($dbh, $sql, $bind_values, $O) = _proc_args(@_);
@@ -97,7 +114,7 @@ sub rdbi1D {
   my $sth = $dbh->prepare($sql) or croak "FATAL: prepare failed: " . $dbh->errstr;
   $sth->execute(@$bind_values)  or croak "FATAL: execute failed: " . $sth->errstr;
 
-  my ($c_type, $c_pack, $c_sizeof, $c_pdl, $c_bad, $c_dataref, $c_idx, $allocated, $cols) = _init_1D($sth->{TYPE}, $O);
+  my ($c_type, $c_pack, $c_sizeof, $c_pdl, $c_bad, $c_dataref, $c_idx, $c_convert, $allocated, $cols) = _init_1D($sth->{TYPE}, $O);
   warn "Initial size: '$allocated'\n" if $O->{debug};
   my $null2bad = $O->{null2bad};
   my $processed = 0;
@@ -121,6 +138,15 @@ sub rdbi1D {
             unless (defined $tmp->[$_]) {
               $tmp->[$_] = $c_bad->[$_];
               $c_pdl->[$_]->badflag(1);
+            }
+          }
+        }
+      }
+      if (scalar @$c_convert > 0) {
+        for my $c (0..$cols-1) {
+          if (ref $c_convert->[$c] eq 'CODE') {
+            for my $r (0..$rows-1) {
+              $data->[$r]->[$c] = $c_convert->[$c]->($data->[$r]->[$c]);
             }
           }
         }
@@ -160,7 +186,7 @@ sub rdbi2D {
   my $sth = $dbh->prepare($sql) or croak "FATAL: prepare failed: " . $dbh->errstr;
   $sth->execute(@$bind_values) or croak "FATAL: execute failed: " . $sth->errstr;
 
-  my ($c_type, $c_pack, $c_sizeof, $c_pdl, $c_bad, $c_dataref, $allocated, $cols) = _init_2D($sth->{TYPE}, $O);
+  my ($c_type, $c_pack, $c_sizeof, $c_pdl, $c_bad, $c_dataref, $c_convert, $allocated, $cols) = _init_2D($sth->{TYPE}, $O);
   warn "Initial size: '$allocated'\n" if $O->{debug};
   my $null2bad = $O->{null2bad};
   my $processed = 0;
@@ -185,6 +211,15 @@ sub rdbi2D {
             unless (defined $_) {
               $_ = $c_bad;
               $c_pdl->badflag(1);
+            }
+          }
+        }
+      }
+      if (scalar @$c_convert > 0) {
+        for my $c (0..$cols-1) {
+          if (ref $c_convert->[$c] eq 'CODE') {
+            for my $r (0..$rows-1) {
+              $data->[$r]->[$c] = $c_convert->[$c]->($data->[$r]->[$c]);
             }
           }
         }
@@ -253,6 +288,7 @@ sub _init_1D {
   my @c_bad;
   my @c_dataref;
   my @c_idx;
+  my @c_convert;
 
   if (ref $O->{type} eq 'ARRAY') {
     @c_type = @{$O->{type}};
@@ -268,8 +304,17 @@ sub _init_1D {
   my $allocated = $O->{reshape_inc};
 
   for (0..$cols-1) {
+    if ($detected_type[$_] && $detected_type[$_] eq '_dt_') {
+      if (defined $c_type[$_]  && $c_type[$_] eq 'longlong') {
+        $c_convert[$_] = \&_dt_to_longlong;
+      }
+      else {
+        $c_convert[$_] = \&_dt_to_double;
+        $c_type[$_] = double;
+      }
+    }
     $c_type[$_] = $detected_type[$_] if !defined $c_type[$_] || $c_type[$_] eq 'auto';
-    $c_type[$_] = double             if !$c_type[$_];
+    $c_type[$_] = double if !$c_type[$_];
     $c_pack[$_] = $pck{$c_type[$_]};
     croak "FATAL: your perl does not support 64bitint (avoid using type longlong)" if $c_pack[$_] eq 'q' && NO64BITINT;
     croak "FATAL: invalid type '$c_type[$_]' for column $_" if !$c_pack[$_];
@@ -282,7 +327,7 @@ sub _init_1D {
     croak "FATAL: column $_ mismatch (type=$c_type[$_], sizeof=$c_sizeof[$_], big=$big)" if $big != $c_sizeof[$_];
   }
 
-  return (\@c_type, \@c_pack, \@c_sizeof, \@c_pdl, \@c_bad, \@c_dataref, \@c_idx, $allocated, $cols);
+  return (\@c_type, \@c_pack, \@c_sizeof, \@c_pdl, \@c_bad, \@c_dataref, \@c_idx, \@c_convert, $allocated, $cols);
 }
 
 sub _init_2D {
@@ -300,6 +345,8 @@ sub _init_2D {
       $detected_type[$_] or warn "column $_ has unknown type '$sql_types->[$_]' gonna use Double\n" for (0..$cols-1);
     }
     for (0..$#detected_type) {
+      # DATETIME is auto-detected as double
+      $detected_type[$_] = 'double' if $detected_type[$_] && $detected_type[$_] eq '_dt_';
       my $dt = $detected_type[$_] || 'double';
       $c_type = double    if $dt eq double;
       $c_type = float     if $dt eq float    && $c_type ne double;
@@ -314,6 +361,14 @@ sub _init_2D {
   croak "FATAL: your perl does not support 64bitint (avoid using type longlong)" if $c_pack eq 'q' && NO64BITINT;
   croak "FATAL: invalid type '$c_type' for column $_" if !$c_pack;
 
+  my @c_convert = ();
+  for (0..$cols-1) {
+    my $t = $tmap{$sql_types->[$_]} || '';
+    if ($t eq '_dt_') {
+        $c_convert[$_] = ($c_type eq 'longlong') ? \&_dt_to_longlong : \&_dt_to_double;
+    }
+  }
+
   my $allocated = $O->{reshape_inc};
   my $c_sizeof = length pack($c_pack, 1);
   my $c_pdl = zeroes($c_type, $cols, $allocated);
@@ -323,7 +378,7 @@ sub _init_2D {
   my $howbig = PDL::Core::howbig($c_pdl->get_datatype);
   croak "FATAL: column $_ size mismatch (type=$c_type, sizeof=$c_sizeof, howbig=$howbig)" unless  $howbig == $c_sizeof;
 
-  return ($c_type, $c_pack, $c_sizeof, $c_pdl, $c_bad, $c_dataref, $allocated, $cols);
+  return ($c_type, $c_pack, $c_sizeof, $c_pdl, $c_bad, $c_dataref, \@c_convert, $allocated, $cols);
 }
 
 1;
@@ -501,9 +556,25 @@ Example:
 
 Parameters and items supported in C<options> hash are the same as by L</rdbi1D>.
 
-=head1 TODO
+=head1 Handling DATE, DATETIME, TIMESTAMP database types
 
-maybe convert DATETIME, TIMESTAMP & co. to something numerical
+By default DATETIME values are converted to C<double> value representing epoch seconds e.g.
+
+ # 1970-01-01T00:00:01.001     >>          1.001
+ # 2000-12-31T12:12:12.5       >>  978264732.5
+ # BEWARE: timestamp is truncated to milliseconds
+ # 2000-12-31T12:12:12.999001  >>  978264732.999
+ # 2000-12-31T12:12:12.999999  >>  978264732.999
+
+If you specify an output type C<longlong> for DATETIME column then the DATETIME values are converted
+to C<longlong> representing epoch microseconds e.g.
+
+ # 1970-01-01T00:00:01.001        >>          1001000
+ # 2000-12-31T12:12:12.5          >>  978264732500000
+ # 2000-12-31T12:12:12.999999     >>  978264732999999
+ # BEWARE: timestamp is truncated to microseconds
+ # 2000-12-31T12:12:12.999999001  >>  978264732999999
+ # 2000-12-31T12:12:12.999999999  >>  978264732999999
 
 =head1 SEE ALSO
 
