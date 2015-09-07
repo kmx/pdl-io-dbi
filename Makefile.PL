@@ -9,16 +9,16 @@ WriteMakefile(
   ABSTRACT_FROM => 'lib/PDL/IO/DBI.pm',
   LICENSE       => 'perl',
   PREREQ_PM     => {
-        'PDL'      => 0,
+        'PDL'      => '2.006', # we need: unpdl
         'DBI'      => 0,
         'Exporter' => '5.59',  # we need: use Exporter 'import';
   },
   BUILD_REQUIRES => {
-        'PDL'                 => 0,
+        'PDL'                 => '2.006', # we need: unpdl
         'DBI'                 => 0,
         'Exporter'            => '5.59',  # we need: use Exporter 'import';
         'Test::More'          => '0.88',  # we need: done_testing()
-        'Test::Number::Delta' => '1.05',  # we need a fix for relative deep delta_ok()
+        'Test::Number::Delta' => '1.06',  # versions before 1.06 have buggy relative mode
   },
   META_MERGE => {
       resources    => {
