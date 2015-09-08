@@ -9,14 +9,16 @@ WriteMakefile(
   ABSTRACT_FROM => 'lib/PDL/IO/DBI.pm',
   LICENSE       => 'perl',
   PREREQ_PM     => {
-        'PDL'      => '2.006', # we need: unpdl
-        'DBI'      => 0,
-        'Exporter' => '5.59',  # we need: use Exporter 'import';
+        'PDL'          => '2.006', # we need: unpdl
+        'DBI'          => 0,
+        'Exporter'     => '5.59',  # we need: use Exporter 'import';
+        'Time::Moment' => '0.12',  # we need: lenient ISO 8601 parsing
   },
   BUILD_REQUIRES => {
-        'PDL'                 => '2.006', # we need: unpdl
+        'PDL'                 => '2.006',
         'DBI'                 => 0,
-        'Exporter'            => '5.59',  # we need: use Exporter 'import';
+        'Exporter'            => '5.59',
+        'Time::Moment'        => '0.12',
         'Test::More'          => '0.88',  # we need: done_testing()
         'Test::Number::Delta' => '1.06',  # versions before 1.06 have buggy relative mode
   },
