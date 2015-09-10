@@ -161,9 +161,25 @@ Example:
 
 Parameters and items supported in `options` hash are the same as by ["rdbi1D"](#rdbi1d).
 
-# TODO
+# Handling DATE, DATETIME, TIMESTAMP database types
 
-maybe convert DATETIME, TIMESTAMP & co. to something numerical
+By default DATETIME values are converted to `double` value representing epoch seconds e.g.
+
+    # 1970-01-01T00:00:01.001     >>          1.001
+    # 2000-12-31T12:12:12.5       >>  978264732.5
+    # BEWARE: timestamp is truncated to milliseconds
+    # 2000-12-31T12:12:12.999001  >>  978264732.999
+    # 2000-12-31T12:12:12.999999  >>  978264732.999
+
+If you specify an output type `longlong` for DATETIME column then the DATETIME values are converted
+to `longlong` representing epoch microseconds e.g.
+
+    # 1970-01-01T00:00:01.001        >>          1001000
+    # 2000-12-31T12:12:12.5          >>  978264732500000
+    # 2000-12-31T12:12:12.999999     >>  978264732999999
+    # BEWARE: timestamp is truncated to microseconds
+    # 2000-12-31T12:12:12.999999001  >>  978264732999999
+    # 2000-12-31T12:12:12.999999999  >>  978264732999999
 
 # SEE ALSO
 
