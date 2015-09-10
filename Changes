@@ -1,6 +1,6 @@
 Changes for PDL::IO::DBI
 
-0.007   2015/00/XX
+0.007   2015/09/10
         - support for DATETIME, TIMESTAMP, DATE
         - require PDL 2.006 as we need unpdl()
 
