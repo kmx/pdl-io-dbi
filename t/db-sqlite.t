@@ -11,6 +11,7 @@ use Config;
 plan skip_all => "DBD::SQLite not installed" unless eval { require DBD::SQLite } ;
 
 use constant NO64BITINT => $Config{ivsize} < 8 ? 1 : 0;
+use constant NODATETIME => eval { require PDL::DateTime; require Time::Moment; 1 } ? 0 : 1;
 diag "No support for 64bitint - some tests will be skipped" if NO64BITINT;
 
 my $db = "temp.db";
@@ -86,7 +87,7 @@ if (!NO64BITINT) {
   my $t1  = rdbi2D($dsn, "select * from tab1");
   my $t1h = rdbi2D(DBI->connect($dsn), "select * from tab1");
   my @p1  = rdbi1D($dsn, "select * from tab1");
-  
+
   is($p1[0]->info,  "PDL: Long D [5]",     '$p1[0]->info');
   is($p1[1]->info,  "PDL: Byte D [5]",     '$p1[1]->info');
   is($p1[2]->info,  "PDL: Short D [5]",    '$p1[2]->info');
@@ -96,7 +97,7 @@ if (!NO64BITINT) {
   is($p1[6]->info,  "PDL: Double D [5]",   '$p1[6]->info');
   is($t1->info,     "PDL: Double D [5,7]", '$t1->info');
   is($t1h->info,    "PDL: Double D [5,7]", '$t1h->info');
-  
+
   delta_ok($t1->transpose->unpdl,  $tab1, '$t1->unpdl');
   delta_ok($t1h->transpose->unpdl, $tab1, '$t1h->unpdl');
 }
@@ -165,10 +166,45 @@ if (!NO64BITINT) {
   is($t4j->at(0,0), 1451604203999999);
   is($t4k->at(0,0), 1005481380000000);
   is($t4l->at(0,0), 1005436800000000);
+  is($t4i->hdr->{col_name}, "dt");
+  is($t4j->hdr->{col_name}, "ts1");
+  is($t4k->hdr->{col_name}, "ts2");
+  is($t4l->hdr->{col_name}, "ts3");
+
+  if (!NODATETIME) {
+    my ($dt4i, $dt4j, $dt4k, $dt4l) = rdbi1D($dsn, "select * from tab4");
+    is($dt4i->hdr->{col_name}, "dt");
+    is($dt4j->hdr->{col_name}, "ts1");
+    is($dt4k->hdr->{col_name}, "ts2");
+    is($dt4l->hdr->{col_name}, "ts3");
+    is($dt4i->info, "PDL::DateTime: LongLong D [1]");
+    is($dt4j->info, "PDL::DateTime: LongLong D [1]");
+    is($dt4k->info, "PDL::DateTime: LongLong D [1]");
+    is($dt4l->info, "PDL::DateTime: LongLong D [1]");
+  }
+  else {
+    diag "no PDL::DateTime";
+    my ($dt4i, $dt4j, $dt4k, $dt4l) = rdbi1D($dsn, "select * from tab4");
+    is($dt4i->hdr->{col_name}, "dt");
+    is($dt4j->hdr->{col_name}, "ts1");
+    is($dt4k->hdr->{col_name}, "ts2");
+    is($dt4l->hdr->{col_name}, "ts3");
+    is($dt4i->info, "PDL: Double D [1]");
+    is($dt4j->info, "PDL: Double D [1]");
+    is($dt4k->info, "PDL: Double D [1]");
+    is($dt4l->info, "PDL: Double D [1]");
+  }
+}
+else {
+  diag "perl without 64bit int";
 }
 my $t4b = rdbi2D($dsn, "select * from tab4");
 is_deeply([$t4b->list], [-86400.0, 1451604203.999, 1005481380.0, 1005436800.0]);
-my ($t4m, $t4n, $t4o, $t4p) = rdbi1D($dsn, "select * from tab4");
+my ($t4m, $t4n, $t4o, $t4p) = rdbi1D($dsn, "select * from tab4", {type => double});
+is($t4m->hdr->{col_name}, "dt");
+is($t4n->hdr->{col_name}, "ts1");
+is($t4o->hdr->{col_name}, "ts2");
+is($t4p->hdr->{col_name}, "ts3");
 is($t4m->at(0,0), -86400.0);
 is($t4n->at(0,0), 1451604203.999);
 is($t4o->at(0,0), 1005481380.0);

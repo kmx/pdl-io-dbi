@@ -1,5 +1,9 @@
 Changes for PDL::IO::DBI
 
+0.007   2015/09/XX
+        - rdbi1D: stores column names to output piddles as $pdl->hdr->{col_name}
+        - rdbi1D: PDL::DateTime support, type=>'datetime' + autodetection via type=>'auto'
+
 0.007   2015/09/10
         - support for DATETIME, TIMESTAMP, DATE
         - require PDL 2.006 as we need unpdl()

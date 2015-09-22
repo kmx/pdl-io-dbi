@@ -10,7 +10,8 @@ our %EXPORT_TAGS = (all => \@EXPORT_OK);
 our $VERSION = '0.007';
 
 use Config;
-use constant NO64BITINT => (($Config{use64bitint} || '') eq 'define' || $Config{longsize} >= 8) ? 0 : 1;
+use constant NO64BITINT => ($Config{ivsize} < 8) ? 1 : 0;
+use constant NODATETIME => eval { require PDL::DateTime; require Time::Moment; 1 } ? 0 : 1;
 use constant DEBUG      => $ENV{PDL_IO_DBI_DEBUG} ? 1 : 0;
 
 use PDL;
@@ -96,7 +97,7 @@ sub _dt_to_double {
   my $str = shift;
   $str = $str."T00Z" if $str =~ /^\d\d\d\d-\d\d-\d\d$/;
   $str = $str."Z"    if $str !~ /(UTC|GMT|Z|\+)/;
-  my $t = eval { Time::Moment->from_string($str, lenient=>1) } or die "INVALID DATETIME: $str";
+  my $t = eval { Time::Moment->from_string($str, lenient=>1) } or die "INVALID DATETIME: $str"; #XXX-FIXME PDL::dt2ll / dt2dbl ?
   return $t->epoch * 1.0 + $t->millisecond / 1_000;
 }
 
@@ -104,7 +105,7 @@ sub _dt_to_longlong {
   my $str = shift;
   $str = $str."T00Z" if $str =~ /^\d\d\d\d-\d\d-\d\d$/;
   $str = $str."Z"    if $str !~ /(UTC|GMT|Z|\+)/;
-  my $t = eval { Time::Moment->from_string($str, lenient=>1) } or die "INVALID DATETIME: $str";
+  my $t = eval { Time::Moment->from_string($str, lenient=>1) } or die "INVALID DATETIME: $str"; #XXX-FIXME PDL::dt2ll
   return $t->epoch*1000000 + $t->microsecond;
 }
 
@@ -118,6 +119,7 @@ sub rdbi1D {
   warn "Initial size: '$allocated'\n" if $O->{debug};
   my $null2bad = $O->{null2bad};
   my $processed = 0;
+  my $headerline = $sth->{NAME_lc};
 
   warn "Fetching data (type=", join(',', @$c_type), ") ...\n" if $O->{debug};
   while (my $data = $sth->fetchall_arrayref(undef, $O->{fetch_chunk})) { # limiting MaxRows
@@ -174,6 +176,11 @@ sub rdbi1D {
     $c_pdl->[$_]->reshape($processed) for (0..$cols-1);
   }
   $c_pdl->[$_]->upd_data for (0..$cols-1);
+  if (ref $headerline eq 'ARRAY') {
+    for (0..$cols-1) {
+      $c_pdl->[$_]->hdr->{col_name} = $headerline->[$_] if $headerline->[$_] && $headerline->[$_] ne '';
+    };
+  }
 
   warn "rdbi1D: no data\n" unless $processed > 0;
 
@@ -296,6 +303,7 @@ sub _init_1D {
   else {
     $c_type[$_] = $O->{type} for (0..$cols-1);
   }
+  for (0..$cols-1) { $c_type[$_] = 'auto' if !$c_type[$_] }
 
   my @detected_type = map { $sql_types->[$_] ? $tmap{$sql_types->[$_]} : undef } (0..$cols-1);
   if ($O->{debug}) {
@@ -303,9 +311,16 @@ sub _init_1D {
   }
   my $allocated = $O->{reshape_inc};
 
+  my @c_dt;
   for (0..$cols-1) {
     if ($detected_type[$_] && $detected_type[$_] eq '_dt_') {
-      if (defined $c_type[$_]  && $c_type[$_] eq 'longlong') {
+      if (!NODATETIME && ($c_type[$_] eq 'auto' || $c_type[$_] eq 'datetime')) {
+        croak "PDL::DateTime not installed" if NODATETIME;
+        $c_convert[$_] = \&_dt_to_longlong;
+        $c_type[$_] = longlong;
+        $c_dt[$_] = 'datetime';
+      }
+      elsif ($c_type[$_] eq longlong) {
         $c_convert[$_] = \&_dt_to_longlong;
       }
       else {
@@ -319,7 +334,7 @@ sub _init_1D {
     croak "FATAL: your perl does not support 64bitint (avoid using type longlong)" if $c_pack[$_] eq 'q' && NO64BITINT;
     croak "FATAL: invalid type '$c_type[$_]' for column $_" if !$c_pack[$_];
     $c_sizeof[$_] = length pack($c_pack[$_], 1);
-    $c_pdl[$_] = zeroes($c_type[$_], $allocated);
+    $c_pdl[$_] = $c_dt[$_] ? PDL::DateTime->new(zeroes(longlong, $allocated)) : zeroes($c_type[$_], $allocated);
     $c_dataref[$_] = $c_pdl[$_]->get_dataref;
     $c_bad[$_] = $c_pdl[$_]->badvalue;
     $c_idx[$_] = 0;
@@ -455,7 +470,7 @@ Queries the database and stores the data into 1D piddles.
 
 Example:
 
-  my ($id, $high, $low) = rdbi2D($dbh, 'SELECT id, high, low FROM sales ORDER by id');
+  my ($id, $high, $low) = rdbi1D($dbh, 'SELECT id, high, low FROM sales ORDER by id');
 
   # column types:
   #   id   .. INTEGER
@@ -470,6 +485,11 @@ Example:
 
   print $low->info, "\n";
   PDL: Double D [100000]        # == 1D piddle, 100 000 rows from DB
+
+  # column names (lowercase) are stored in loaded piddles in $pdl->hdr->{col_name}
+  print $id->hdr->{col_name},   "\n";  # prints: id
+  print $high->hdr->{col_name}, "\n";  # prints: high
+  print $low->hdr->{col_name},  "\n";  # prints: low
 
 Parameters:
 
@@ -575,6 +595,15 @@ to C<longlong> representing epoch microseconds e.g.
  # BEWARE: timestamp is truncated to microseconds
  # 2000-12-31T12:12:12.999999001  >>  978264732999999
  # 2000-12-31T12:12:12.999999999  >>  978264732999999
+
+If you have L<PDL::DateTime> installed then rcsv1D automaticcally converts DATETIME columns
+to L<PDL::DateTime> piddles:
+
+ # autodetection - same as: type=>'auto'
+ my ($datetime_piddle, $pr) = rdbi1D("select mydate, myprice from sales");
+
+ # or you can explicitely use type 'datetime'
+ my ($datetime_piddle, $pr) = rdbi1D("select mydate, myprice from sales", {type=>['datetime', double]});
 
 =head1 SEE ALSO
 
