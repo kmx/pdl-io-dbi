@@ -5,7 +5,7 @@ use Test::More;
 use DBI;
 use PDL;
 use PDL::IO::DBI ':all';
-use Test::Number::Delta relative => 0.00001;
+use Test::Number::Delta relative => 0.000_000_1;
 use Config;
 
 plan skip_all => "DBD::ODBC not installed" unless eval { require DBD::ODBC };
@@ -139,11 +139,12 @@ if (!NO64BITINT) {
 delta_ok($t2->transpose->unpdl,  $tab2, '$t2->unpdl');
 delta_ok($t2->slice(':', "(0)")->sum, 40123167);
 delta_ok($t2->slice(':', "(1)")->sum, -68083968);
-delta_ok($t2->slice(':', "(2)")->sum, 561059287524926230000.0);
+delta_ok($t2->slice(':', "(2)")->sum, 561059287524926160896.0);
 delta_ok($t2->slice(':', "(3)")->sum, -5789801080043.0);
-delta_ok($t2->slice(':', "(4)")->sum, -0.76818887);
-delta_ok($t2->sum, $p2d[0]->sum + $p2d[1]->sum + $p2d[2]->sum + $p2d[3]->sum, "sum double");
-delta_ok($t2->sum, $p2f[0]->sum + $p2f[1]->sum + $p2f[2]->sum + $p2f[3]->sum, "sum float");
+delta_ok($t2->slice(':', "(4)")->sum, -0.768188867000000108);
+
+delta_within($t2->sum, $p2d[0]->sum + $p2d[1]->sum + $p2d[2]->sum + $p2d[3]->sum, 1000000, "sum double");
+delta_within($t2->sum, $p2f[0]->sum + $p2f[1]->sum + $p2f[2]->sum + $p2f[3]->sum, 10000000000000, "sum float");
 
 ### TAB3
 my $t3  = rdbi2D($dsn, "select * from tab3");
@@ -202,15 +203,15 @@ else {
   diag "perl without 64bit int";
 }
 my $t4b = rdbi2D($dsn, "select * from tab4");
-is_deeply([$t4b->list], [-86400.0, 1451604203.999, 1005481380.0, 1005436800.0]);
+delta_ok([$t4b->list], [-86400.0, 1451604203.999, 1005481380.0, 1005436800.0]);
 my ($t4m, $t4n, $t4o, $t4p) = rdbi1D($dsn, "select * from tab4", {type => double});
 is($t4m->hdr->{col_name}, "dt");
 is($t4n->hdr->{col_name}, "ts1");
 is($t4o->hdr->{col_name}, "ts2");
 is($t4p->hdr->{col_name}, "ts3");
-is($t4m->at(0,0), -86400.0);
-is($t4n->at(0,0), 1451604203.999);
-is($t4o->at(0,0), 1005481380.0);
-is($t4p->at(0,0), 1005436800.0);
+delta_within($t4m->at(0,0), -86400.0, 0.000_001);
+delta_within($t4n->at(0,0), 1451604203.999, 0.000_000_1);
+delta_within($t4o->at(0,0), 1005481380.0, 0.000_001);
+delta_within($t4p->at(0,0), 1005436800.0, 0.000_001);
 
 done_testing;

@@ -1,5 +1,9 @@
 Changes for PDL::IO::DBI
 
+0.009   2015/10/16
+        - fixed uselongdouble troubles
+        - require PDL 2.014 (otherwise some longlong related tests fail)
+
 0.008   2015/10/16
         - rdbi1D: stores column names to output piddles as $pdl->hdr->{col_name}
         - rdbi1D: PDL::DateTime support, type=>'datetime' + autodetection via type=>'auto'
