@@ -68,7 +68,7 @@ Queries the database and stores the data into 1D piddles.
 
 Example:
 
-    my ($id, $high, $low) = rdbi2D($dbh, 'SELECT id, high, low FROM sales ORDER by id');
+    my ($id, $high, $low) = rdbi1D($dbh, 'SELECT id, high, low FROM sales ORDER by id');
 
     # column types:
     #   id   .. INTEGER
@@ -83,6 +83,11 @@ Example:
 
     print $low->info, "\n";
     PDL: Double D [100000]        # == 1D piddle, 100 000 rows from DB
+
+    # column names (lowercase) are stored in loaded piddles in $pdl->hdr->{col_name}
+    print $id->hdr->{col_name},   "\n";  # prints: id
+    print $high->hdr->{col_name}, "\n";  # prints: high
+    print $low->hdr->{col_name},  "\n";  # prints: low
 
 Parameters:
 
@@ -180,6 +185,15 @@ to `longlong` representing epoch microseconds e.g.
     # BEWARE: timestamp is truncated to microseconds
     # 2000-12-31T12:12:12.999999001  >>  978264732999999
     # 2000-12-31T12:12:12.999999999  >>  978264732999999
+
+If you have [PDL::DateTime](https://metacpan.org/pod/PDL::DateTime) installed then rcsv1D automaticcally converts DATETIME columns
+to [PDL::DateTime](https://metacpan.org/pod/PDL::DateTime) piddles:
+
+    # autodetection - same as: type=>'auto'
+    my ($datetime_piddle, $pr) = rdbi1D("select mydate, myprice from sales");
+
+    # or you can explicitely use type 'datetime'
+    my ($datetime_piddle, $pr) = rdbi1D("select mydate, myprice from sales", {type=>['datetime', double]});
 
 # SEE ALSO
 

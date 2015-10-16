@@ -23,13 +23,19 @@ WriteMakefile(
         'Test::Number::Delta' => '1.06',  # versions before 1.06 have buggy relative mode
   },
   META_MERGE => {
+      prereqs => {
+        runtime => {
+          recommends => {
+            'PDL::DateTime' => 0,
+          },
+        },
+      },
       resources    => {
-          repository   => 'https://github.com/kmx/pdl-io-dbi',
+        repository   => 'https://github.com/kmx/pdl-io-dbi',
       },
   },
   dist => {
       ($^O eq 'MSWin32' ? (TAR => 'ptar', TARFLAGS => '-c -C -f') : ()),
-      #PREOP => 'pod2text lib/PDL/IO/DBI.pm > README'
       PREOP => 'perldoc -u lib/PDL/IO/DBI.pm | pod2markdown > README.md',
   },
 );

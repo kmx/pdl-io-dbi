@@ -1,6 +1,6 @@
 Changes for PDL::IO::DBI
 
-0.007   2015/09/XX
+0.008   2015/10/16
         - rdbi1D: stores column names to output piddles as $pdl->hdr->{col_name}
         - rdbi1D: PDL::DateTime support, type=>'datetime' + autodetection via type=>'auto'
 
