@@ -8,3 +8,4 @@ t/compile.t
 t/db-odbc-mssql.t
 t/db-postgresql.t
 t/db-sqlite.t
+t/reuse_sth.t

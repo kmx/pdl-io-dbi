@@ -1,5 +1,8 @@
 Changes for PDL::IO::DBI
 
+0.010   2016/05/15
+        - support for fetching rows chunk by chunk (new param: reuse_sth)
+
 0.009   2015/10/16
         - fixed uselongdouble troubles
         - require PDL 2.014 (otherwise some longlong related tests fail)
