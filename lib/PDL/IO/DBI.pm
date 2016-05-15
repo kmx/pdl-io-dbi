@@ -112,8 +112,17 @@ sub _dt_to_longlong {
 sub rdbi1D {
   my ($dbh, $sql, $bind_values, $O) = _proc_args(@_);
 
-  my $sth = $dbh->prepare($sql) or croak "FATAL: prepare failed: " . $dbh->errstr;
-  $sth->execute(@$bind_values)  or croak "FATAL: execute failed: " . $sth->errstr;
+  # reuse_sth (if defined) is a scalar reference to a statement handle to be reused
+  my $reuse_sth = $O->{reuse_sth};
+  my $sth;
+  if ($reuse_sth && $$reuse_sth) {
+    $sth = $$reuse_sth;
+  }
+  else {
+    $sth = $dbh->prepare($sql) or croak "FATAL: prepare failed: " . $dbh->errstr;
+    $sth->execute(@$bind_values)  or croak "FATAL: execute failed: " . $sth->errstr;
+    $$reuse_sth = $sth if $reuse_sth;
+  }
 
   my ($c_type, $c_pack, $c_sizeof, $c_pdl, $c_bad, $c_dataref, $c_idx, $c_convert, $allocated, $cols) = _init_1D($sth->{TYPE}, $O);
   warn "Initial size: '$allocated'\n" if $O->{debug};
@@ -168,6 +177,7 @@ sub rdbi1D {
         $c_idx->[$ci] += $expected_len;
       }
     }
+    last if $reuse_sth;
   }
   croak "FATAL: DB fetch failed: " . $sth->errstr if $sth->err;
 
@@ -182,7 +192,15 @@ sub rdbi1D {
     };
   }
 
-  warn "rdbi1D: no data\n" unless $processed > 0;
+  if ($processed == 0) {
+    if ($reuse_sth) {
+      # signal to callers that all chunks have been fetched
+      $$reuse_sth = undef;
+    }
+    else {
+      warn "rdbi1D: no data\n";
+    }
+  }
 
   return @$c_pdl;
 }
@@ -190,6 +208,7 @@ sub rdbi1D {
 sub rdbi2D {
   my ($dbh, $sql, $bind_values, $O) = _proc_args(@_);
 
+  croak 'FATAL: reuse_sth not supported yet for rdbi2D' if $O->{reuse_sth};
   my $sth = $dbh->prepare($sql) or croak "FATAL: prepare failed: " . $dbh->errstr;
   $sth->execute(@$bind_values) or croak "FATAL: execute failed: " . $sth->errstr;
 
@@ -262,11 +281,17 @@ sub _proc_args {
 
   croak "FATAL: no SQL query"  unless $sql;
   croak "FATAL: no DBH or DSN" unless defined $dsn_or_dbh;
+  my $reuse_sth = $options->{reuse_sth};
+  if ($reuse_sth) {
+    croak "FATAL: reuse_sth must either be false, a reference to a false value, or a reference to a statement handle"
+      if $$reuse_sth && !eval { $$reuse_sth->isa('DBI::st') };
+  }
   my $O = { %$options }; # make a copy
 
   # handle defaults for optional parameters
   $O->{fetch_chunk} =  8_000 unless defined $O->{fetch_chunk};
-  $O->{reshape_inc} = 80_000 unless defined $O->{reshape_inc};
+  my $alloc = $reuse_sth ? $O->{fetch_chunk} : 80_000;
+  $O->{reshape_inc} = $alloc unless defined $O->{reshape_inc};
   $O->{type}        = 'auto' unless defined $O->{type};
   $O->{debug}       = DEBUG  unless defined $O->{debug};
 
@@ -530,19 +555,70 @@ or separately for each column/piddle:
 =item fetch_chunk
 
 We do not try to load all query results into memory at once, we load them in chunks defined by this parameter.
-Default value is C<8000> (rows).
+Default value is C<8000> (rows). If C<reuse_sth> is true, C<rdbi1D> will
+return one chunk per call, and the number of rows in a chunk will never exceed
+C<fetch_chunk>.
 
 =item reshape_inc
 
 As we do not try to load all query results into memory at once; we also do not know at the beginning how
 many rows there will be. Therefore we do not know how big piddle to allocate, we have to incrementally
-(re)allocated the piddle by increments defined by this parameter. Default value is C<80000>.
+(re)allocate the piddle by increments defined by this parameter. Default value is C<80000> (unless
+C<reuse_sth> is used).
 
 If you know how many rows there will be you can improve performance by setting this parameter to expected row count.
+
+If you are using C<reuse_sth>, C<reshape_inc> is by default equal to
+C<fetch_chunk> to avoid reallocations, but you could set it to a different
+value if you wanted to.
 
 =item null2bad
 
 Values C<0> (default) or C<1> - convert NULLs to BAD values (there is a performance cost when turned on).
+
+=item reuse_sth
+
+Whether to reuse the statement handle used to fetch the rows.
+
+When C<reuse_sth> is C<false>, all rows matching the select statement are
+fetched at once, and the statement handle is never reused. Every new call to
+rdbi1D will rerun the select statement and fetch the same rows again.
+
+When C<reuse_sth> is not C<false>, it must be a reference (either to undef,
+or to a statement handle). In this case, the operation mode changes: rdbi1D
+will try to fetch C<fetch_chunk> rows from the database, B<and will return
+early>. It will reuse the statement handle passed in via C<reuse_sth>. If a
+reference to C<undef> is passed, rdbi1D will initialize the statement handle
+itself. The idea is that you call rdbi1D repeatedly to obtain subsets of the
+total number of rows in the database matching the select statement. This can be
+useful if the logic to handle subsets is already present in your code, and you
+don't need all rows in memory at once.
+
+As an example, suppose you are calculating a minimum value. (You would probably
+do this in the database directly, but it makes for a simple example.) You don't
+need to have all matching rows in memory at once. Fetching chunk by chunk will
+do just fine:
+
+  my $N = 500_000;
+  my $minimum;
+  my $sth;
+  for (;;) {
+    my ($values) = rdbi1D($dbh, "SELECT value FROM table", {reuse_sth => \$sth, fetch_chunk => $N});
+    last unless $sth;
+    if (!defined($minimum) || $values->minimum->sclr < $minimum) { $minimum = $values->minimum->sclr }
+  }
+
+You can avoid the allocation of a single large PDL in this way. This wouldn't
+help you much if the database was small. But if it was so large the resulting
+PDL didn't fit in memory, working in chunks allows you to process all of the
+data. Note that C<reshape_inc> will be set to the same value as C<fetch_chunk>
+to avoid a reallocation to the chunk size, unless you explicitly set
+C<reshape_inc> to another value.
+
+Note that rdbi1D sets the reused statement handle to C<undef> if there are no
+more chunks, i.e., when the database query returns no rows. You can use this to
+your advantage to terminate the loop fetching the chunks, without having to
+count the rows yourself.
 
 =item debug
 
@@ -575,6 +651,7 @@ Example:
   PDL: Double D [100000, 3]     # == 2D piddle, 100 000 rows from DB
 
 Parameters and items supported in C<options> hash are the same as by L</rdbi1D>.
+C<reuse_sth> is not supported yet for L</rdbi2D>.
 
 =head1 Handling DATE, DATETIME, TIMESTAMP database types
 
