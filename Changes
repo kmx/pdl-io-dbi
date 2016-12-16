@@ -1,5 +1,8 @@
 Changes for PDL::IO::DBI
 
+0.011   2016/12/16
+        - Makefile.PL tuning
+
 0.010   2016/05/15
         - support for fetching rows chunk by chunk (new param: reuse_sth)
 
