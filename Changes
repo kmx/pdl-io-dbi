@@ -1,5 +1,9 @@
 Changes for PDL::IO::DBI
 
+0.012   2016/12/19
+        - handle numeric timezones west of Greenwich + numeric timezones
+          with non-integral number of hours (contibuted by Christian Carey)
+
 0.011   2016/12/16
         - Makefile.PL tuning
 

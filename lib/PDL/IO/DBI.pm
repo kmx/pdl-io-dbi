@@ -7,7 +7,7 @@ use Exporter 'import';
 our @EXPORT_OK   = qw(rdbi1D rdbi2D);
 our %EXPORT_TAGS = (all => \@EXPORT_OK);
 
-our $VERSION = '0.011';
+our $VERSION = '0.012';
 
 use Config;
 use constant NO64BITINT => ($Config{ivsize} < 8) ? 1 : 0;
