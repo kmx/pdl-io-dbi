@@ -90,23 +90,23 @@ my %tmap = (
 
 # https://www.sqlite.org/datatype3.html
 # http://dev.mysql.com/doc/refman/5.7/en/integer-types.html
-# http://www.postgresql.org/docs/9.3/static/datatype-numeric.html
+# http://www.postgresql.org/docs/9.6/static/datatype-numeric.html
 # http://msdn.microsoft.com/en-us/library/ff848794.aspx
 
 sub _dt_to_double {
   my $str = shift;
-  $str = $str."T00Z" if $str =~ /^\d\d\d\d-\d\d-\d\d$/;
-  $str = $str."Z"    if $str !~ /(UTC|GMT|Z|\+)/;
+  $str .= 'T00Z' if $str =~ m/^\d{4}-\d\d-\d\d$/;
+  $str .= 'Z'    if $str !~ m/(?:UTC|GMT|Z|[\+\-]\d\d(?:\:\d\d)?)$/;
   my $t = eval { Time::Moment->from_string($str, lenient=>1) } or die "INVALID DATETIME: $str"; #XXX-FIXME PDL::dt2ll / dt2dbl ?
   return $t->epoch * 1.0 + $t->millisecond / 1_000;
 }
 
 sub _dt_to_longlong {
   my $str = shift;
-  $str = $str."T00Z" if $str =~ /^\d\d\d\d-\d\d-\d\d$/;
-  $str = $str."Z"    if $str !~ /(UTC|GMT|Z|\+)/;
+  $str .= 'T00Z' if $str =~ m/^\d{4}-\d\d-\d\d$/;
+  $str .= 'Z'    if $str !~ m/(?:UTC|GMT|Z|[\+\-]\d\d(?:\:\d\d)?)$/;
   my $t = eval { Time::Moment->from_string($str, lenient=>1) } or die "INVALID DATETIME: $str"; #XXX-FIXME PDL::dt2ll
-  return $t->epoch*1000000 + $t->microsecond;
+  return $t->epoch*1_000_000 + $t->microsecond;
 }
 
 sub rdbi1D {
